@@ -1,4 +1,0 @@
-subject - Set or review the subject you are currently practicing.
-notes - Any additional notes for the bot to consider about you.
-question - Receive a new question right now.
-solve - Submit a solution to the most recent question.

@@ -1,9 +1,6 @@
 import os
-import json
 from openai import OpenAI
-from dotenv import load_dotenv
-from models import *
-from pydantic import ValidationError
+from src.models import *
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
@@ -11,6 +8,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 GENERATION_ASSISTANT = "asst_Vw21sPPzzZuqkRM42n6X27OZ"
 MESSAGE_ASSISTANT = "asst_3QnAUu8jMl9j0n8VFyWuyv9G"
 JUDGE_ASSISTANT = "asst_icrfgkOoEozOuCRSO33tvWlk"
+GIVEUP_ASSISTANT = "asst_h8EDYFMqiaJqIAw4WfFlwChS"
 
 def chat_generate_question(subject, context):
     # Create the OpenAI client
@@ -39,9 +37,9 @@ def chat_generate_question(subject, context):
         messages = client.beta.threads.messages.list(thread_id=thread.id)
         msg_text = messages.data[0].content[0].text.value
         question_data = QuestionGeneration.model_validate_json(msg_text)
-        return (thread.id, question_data)
+        return thread.id, question_data
     else:
-        return run.status
+        return 0, run.status
 
 def chat_message(session, user_response):
     # Create the OpenAI client
@@ -137,14 +135,13 @@ def chat_judge_response(session):
     client.beta.threads.messages.create(
         thread_id=thread_id,
         role="assistant",
-        content="Let me look at what the judge just said and share with you if you are correct and what their feedback is."
+        content="Let me look at what the judge said. I'll only confirm if you are correct, but give you a hint if you are wrong."
     )
 
     run = client.beta.threads.runs.create_and_poll(
         assistant_id=assistant.id,
         thread_id=thread_id
     )
-
 
     # Check if the run completed successfully
     if run.status == 'completed':
@@ -156,3 +153,32 @@ def chat_judge_response(session):
 
     return f"The solution attempt did not complete successfully: {run.status}"
 
+def chat_giveup(session):
+    # Create the OpenAI client
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    # Retrieve the assistant for answering solutions
+    assistant = client.beta.assistants.retrieve(GIVEUP_ASSISTANT)
+
+    # Get the thread_id
+    thread_id = session.thread_id or None
+
+    client.beta.threads.messages.create(
+        thread_id=thread_id,
+        role="user",
+        content="I give up."
+    )
+
+    run = client.beta.threads.runs.create_and_poll(
+        assistant_id=assistant.id,
+        thread_id=thread_id
+    )
+
+    # Check if the run completed successfully
+    if run.status == 'completed':
+        messages = client.beta.threads.messages.list(thread_id=run.thread_id)
+        msg_text = messages.data[0].content[0].text.value
+
+        return msg_text
+
+    return f"Giving up did not complete successfully: {run.status}"

@@ -1,11 +1,10 @@
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from sqlalchemy.orm import sessionmaker, Session, declarative_base
+from datetime import datetime, UTC
 from typing import Optional
 
 # SQLAlchemy setup
-DATABASE_URL = "sqlite:///bot_database.db"
+DATABASE_URL = "sqlite:///db/bot_database.db"
 engine = create_engine(DATABASE_URL)
 Base = declarative_base()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -16,18 +15,18 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     subject = Column(String, index=True)
-    context = Column(String)
+    memo = Column(String)
     next_problem = Column(DateTime)
     status = Column(String, default="active")
 
 # Define the Session model
-class Session(Base):
+class TutorSession(Base):
     __tablename__ = 'sessions'
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, index=True)
     subject = Column(String)
-    context = Column(String)
+    memo = Column(String)
     question = Column(String)
     solving_process = Column(String)
     expected_answer = Column(String)
@@ -37,8 +36,8 @@ class Session(Base):
     performance = Column(Integer)
     completed = Column(Boolean, default=False)
     thread_id = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(UTC))
+    updated_at = Column(DateTime, default=datetime.now(UTC))
 
 # Define the SolutionResponse model
 class SolutionResponse(Base):
@@ -52,7 +51,7 @@ class SolutionResponse(Base):
     is_correct = Column(Boolean)
     performance_explanation = Column(String)
     performance = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(UTC))
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -84,29 +83,26 @@ def update_user_subject(db, user_id, subject):
         db.refresh(user)
     return user
 
-def update_user_context(db, user_id, context):
+def update_user_memo(db, user_id, memo):
     user = get_user(db, user_id)
     if user:
-        user.context = context
+        user.memo = memo
         db.commit()
         db.refresh(user)
     return user
 
 # db.py
 
-def create_session(db: Session, user_id: int, subject: str, context: str, question: str, solving_process: str, expected_answer: str, thread_id : str):
-    new_session = Session(
+def create_tutor_session(db: Session, user_id: int, subject: str, memo: str, question: str, solving_process: str,
+                         expected_answer: str, thread_id : str):
+    new_session = TutorSession(
         user_id=user_id,
         subject=subject,
-        context=context,
+        memo=memo,
         question=question,
         solving_process=solving_process,
         expected_answer=expected_answer,
-        attempted=0,
-        correct=False,
-        performance_explanation=None,
-        performance=None,
-        completed=False
+        thread_id=thread_id
     )
     db.add(new_session)
     db.commit()
@@ -114,13 +110,10 @@ def create_session(db: Session, user_id: int, subject: str, context: str, questi
     return new_session
 
 def get_current_session(db: Session, user_id: int):
-    return db.query(Session).filter(
-        Session.user_id == user_id,
-        Session.completed == False  # Find sessions that are not completed
-    ).order_by(Session.created_at.desc()).first()
+    return db.query(TutorSession).filter(TutorSession.user_id == user_id).order_by(TutorSession.created_at.desc()).first()
 
 def update_session(db: Session, session_id: int, **kwargs):
-    session = db.query(Session).filter(Session.id == session_id).first()
+    session = db.query(TutorSession).filter(TutorSession.id == session_id).first()
     if session:
         for key, value in kwargs.items():
             setattr(session, key, value)
