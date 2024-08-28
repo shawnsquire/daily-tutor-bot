@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - daily_tutor_bot_postgres_data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
 
