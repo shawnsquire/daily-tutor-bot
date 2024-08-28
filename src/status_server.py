@@ -1,4 +1,5 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import logging
 
 status_server_port = 8080
 
@@ -11,7 +12,7 @@ class StatusPageHandler(BaseHTTPRequestHandler):
 
 def run_status_server():
     server_address = ("0.0.0.0", status_server_port)
-    print("Status server running on port", status_server_port)
+    logging.info(f"Status server running on port {status_server_port}")
     # noinspection PyTypeChecker
     httpd = HTTPServer(server_address, StatusPageHandler)
     httpd.serve_forever()

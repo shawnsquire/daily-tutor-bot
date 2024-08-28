@@ -1,21 +1,18 @@
 import logging
 import traceback
-
 from telegram import Update, BotCommand
 from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
-
 from src.db import *
 from src.strings import *
 from src.openai_handler import chat_generate_question, chat_message, chat_solution_attempt, chat_judge_response, chat_giveup
 from src.utils import error_handler, get_db_context, send_typing
-import threading
 from src.status_server import run_status_server
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from src.scheduler import generate_daily_questions, generate_daily_question_for_user
-
 import asyncio
+import signal
 
 # Load environment variables
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -26,8 +23,9 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
-# Set the logging level for the httpx logger to WARNING or higher
+# Set the logging level for the httpx and http logger to WARNING or higher
 logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('http.server').setLevel(logging.WARNING)
 
 def get_user_from_update(update: Update, db: Session = get_db_context()) -> User:
     user_id = update.message.from_user.id
@@ -296,55 +294,83 @@ async def post_init(application: Application) -> None:
 
     await application.bot.set_my_commands(menu)
 
-def run_bot() -> Application:
+def create_bot() -> Application:
     # Create the Application and pass it your bot's token
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(True).post_init(post_init).build()
 
     # Handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("subject", handle_subject))
-    application.add_handler(CommandHandler("memo", handle_memo))
-    application.add_handler(CommandHandler("hint", handle_hint))
-    application.add_handler(CommandHandler("question", generate_new_question))
-    application.add_handler(CommandHandler("solve", handle_solve))
-    application.add_handler(CommandHandler("giveup", handle_giveup))
+    application.add_handler(CommandHandler("start", start, block=False))
+    application.add_handler(CommandHandler("subject", handle_subject, block=False))
+    application.add_handler(CommandHandler("memo", handle_memo, block=False))
+    application.add_handler(CommandHandler("hint", handle_hint, block=False))
+    application.add_handler(CommandHandler("question", generate_new_question, block=False))
+    application.add_handler(CommandHandler("solve", handle_solve, block=False))
+    application.add_handler(CommandHandler("giveup", handle_giveup, block=False))
 
     # Admin handlers
     # Add a hidden slash command to trigger the daily question generation
-    application.add_handler(CommandHandler("daily_question", handle_send_daily_question))
+    application.add_handler(CommandHandler("daily_question", handle_send_daily_question, block=False))
 
     # Message handler for non-command text (solution attempts)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message, block=False))
 
     # Error handler
     application.add_error_handler(handle_error)
 
+    return application
+
+def run_bot(application: Application) -> None:
     # Start the Bot
     application.run_polling()
 
-    return application
-
-def run_scheduler(application: Application) -> None:
+async def run_scheduler(application: Application) -> None:
     # Create an AsyncIOScheduler instance
     scheduler = AsyncIOScheduler()
+
     # Schedule the generate_daily_questions function to run daily at 8am EST
-    scheduler.add_job(generate_daily_questions, 'cron', hour=8, timezone=pytz.timezone('US/Eastern'),
+    # TODO: Run every minute and check when the user is scheduled to recieve theirs?
+    scheduler.add_job(generate_daily_questions, 'cron',
+                      hour=15, minute=00, timezone=pytz.timezone('US/Eastern'),
                       args=[get_db_context(), application])
-    # Start the scheduler
+
     scheduler.start()
 
-def run_status() -> None:
+async def run_status() -> None:
     # Run the status server in a separate thread
-    status_thread = threading.Thread(target=run_status_server)
-    status_thread.daemon = True
-    status_thread.start()
+    run_status_server()
 
-def main() -> None:
-    # Run all processes asynchronously
-    application = run_bot()
-    run_scheduler(application)
-    run_status()
+def main_bot_only() -> None:
+    # We need the bot to start up before we can continue
+    application = create_bot()
+    run_bot(application)
+
+async def main() -> None:
+    # We need the bot to start up before we can continue
+    application = create_bot()
+
+    # List to hold only successful tasks
+    tasks = []
+
+    # Start the scheduler in the background
+    try:
+        scheduler_task = asyncio.create_task(run_scheduler(application))
+        tasks.append(scheduler_task)
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
+
+    # Start the status server in the background
+    try:
+        status_task = asyncio.create_task(run_status())
+        tasks.append(status_task)
+    except Exception as e:
+        logger.error(f"Failed to start status server: {e}")
+
+    # Wait for all tasks to finish
+    await asyncio.gather(*tasks)
+
+    # Run the bot
+    run_bot(application)
 
 if __name__ == '__main__':
-    main()
-
+    # asyncio.run(main())
+    main_bot_only()
