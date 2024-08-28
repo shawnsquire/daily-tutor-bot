@@ -1,18 +1,23 @@
-import os
 import logging
 import traceback
+
 from telegram import Update, BotCommand
 from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+
 from src.db import *
 from src.strings import *
 from src.openai_handler import chat_generate_question, chat_message, chat_solution_attempt, chat_judge_response, chat_giveup
-from src.utils import error_handler
-from dotenv import load_dotenv
-from sqlalchemy.orm import Session
+from src.utils import error_handler, get_db_context, send_typing
+import threading
+from src.status_server import run_status_server
+import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from src.scheduler import generate_daily_questions, generate_daily_question_for_user
+
+import asyncio
 
 # Load environment variables
-load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 # Enable logging
@@ -24,23 +29,14 @@ logger = logging.getLogger(__name__)
 # Set the logging level for the httpx logger to WARNING or higher
 logging.getLogger('httpx').setLevel(logging.WARNING)
 
-
-# Dependency for the database session
-def get_db_context(context: CallbackContext) -> Session:
-    # We may choose to use the CallbackContext to get the database session
-    # For now, though, we expect only one database
-    return next(get_db())
-
-# Ensure user exists or create one
-def ensure_user_exists(db: Session, user_id: int):
-    user = get_user(db, user_id)
-    if not user:
-        user = create_user(db, user_id)
-    return user
+def get_user_from_update(update: Update, db: Session = get_db_context()) -> User:
+    user_id = update.message.from_user.id
+    return ensure_user_exists(db, user_id)
 
 # Command: /start
+# noinspection PyUnusedLocal
 async def start(update: Update, context: CallbackContext) -> None:
-    db = get_db_context(context)
+    db = get_db_context()
     user = update.message.from_user
     if not get_user(db, user.id):
         create_user(db, user.id)
@@ -51,14 +47,13 @@ async def start(update: Update, context: CallbackContext) -> None:
 
 # Handle /subject command
 async def handle_subject(update: Update, context: CallbackContext) -> None:
-    db = get_db_context(context)
-    user_id = update.message.from_user.id
-    user = ensure_user_exists(db, user_id)
+    db = get_db_context()
+    user = get_user_from_update(update, db)
 
     if context.args:
         # If arguments are provided, update the subject
         subject = ' '.join(context.args)
-        update_user_subject(db, user_id, subject)
+        update_user_subject(db, user.id, subject)
         await update.message.reply_text(SUBJECT_SET_MESSAGE.format(subject=subject))
     else:
         # If no arguments are provided, display the current subject
@@ -69,14 +64,13 @@ async def handle_subject(update: Update, context: CallbackContext) -> None:
 
 # Handle /memo command
 async def handle_memo(update: Update, context: CallbackContext) -> None:
-    db = get_db_context(context)
-    user_id = update.message.from_user.id
-    user = ensure_user_exists(db, user_id)
+    db = get_db_context()
+    user = get_user_from_update(update, db)
 
     if context.args:
         # If arguments are provided, update the context/notes
         memo = ' '.join(context.args)
-        update_user_memo(db, user_id, memo)
+        update_user_memo(db, user.id, memo)
         await update.message.reply_text(MEMO_UPDATED_MESSAGE)
     else:
         # If no arguments are provided, display the current context/notes
@@ -90,9 +84,8 @@ async def handle_hint(update: Update, context: CallbackContext) -> None:
     # Send that the bot is typing so the user knows to wait
     await context.bot.send_chat_action(chat_id=update.effective_message.chat_id, action=ChatAction.TYPING)
 
-    db = get_db_context(context)
-    user_id = update.message.from_user.id
-    user = ensure_user_exists(db, user_id)
+    db = get_db_context()
+    user = get_user_from_update(update, db)
 
     # Check if the user has set a subject
     if not user.subject:
@@ -100,7 +93,7 @@ async def handle_hint(update: Update, context: CallbackContext) -> None:
         return
 
     # Check if there is an active session
-    session = get_current_session(db, user_id)
+    session = get_current_session(db, user.id)
     if not session:
         await update.message.reply_text(NO_SESSION_MESSAGE)
         return
@@ -115,9 +108,8 @@ async def handle_hint(update: Update, context: CallbackContext) -> None:
 # Command: /question
 async def generate_new_question(update: Update, context: CallbackContext) -> None:
 
-    db = get_db_context(context)
-    user_id = update.message.from_user.id
-    user = ensure_user_exists(db, user_id)
+    db = get_db_context()
+    user = get_user_from_update(update, db)
 
     if not user.subject:
         await update.message.reply_text(PROMPT_SET_SUBJECT_MESSAGE)
@@ -139,7 +131,7 @@ async def generate_new_question(update: Update, context: CallbackContext) -> Non
     # Logic to store question and start session
     create_tutor_session(
         db=db,
-        user_id=user_id,
+        user_id=user.id,
         subject=user.subject,
         memo=user.memo,
         question=question_data.question,
@@ -148,16 +140,15 @@ async def generate_new_question(update: Update, context: CallbackContext) -> Non
         thread_id=thread_id
     )
 
-    await update.message.reply_text(QUESTION_READY_MESSAGE.format(question=question_data.question))
+    await update.message.reply_text(QUESTION_READY_MESSAGE.format(subject=user.subject, question=question_data.question))
 
 # Handle text messages (as solution attempts)
+# noinspection DuplicatedCode
 async def handle_message(update: Update, context: CallbackContext) -> None:
-    # Send that the bot is typing so the user knows to wait
-    await context.bot.send_chat_action(chat_id=update.effective_message.chat_id, action=ChatAction.TYPING)
+    await send_typing(update, context)
 
-    db = get_db_context(context)
-    user_id = update.message.from_user.id
-    user = ensure_user_exists(db, user_id)
+    db = get_db_context()
+    user = get_user_from_update(update, db)
 
     # Check if the user has set a subject
     if not user.subject:
@@ -165,7 +156,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         return
 
     # Check if there is an active session
-    session = get_current_session(db, user_id)
+    session = get_current_session(db, user.id)
     if not session:
         await update.message.reply_text(NO_SESSION_MESSAGE)
         return
@@ -178,9 +169,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text(response)
 
 async def handle_solve(update: Update, context: CallbackContext) -> None:
-    db = get_db_context(context)
-    user_id = update.message.from_user.id
-    user = ensure_user_exists(db, user_id)
+    db = get_db_context()
+    user = get_user_from_update(update, db)
 
     # Check if the user has set a subject
     if not user.subject:
@@ -188,7 +178,7 @@ async def handle_solve(update: Update, context: CallbackContext) -> None:
         return
 
     # Check if there is an active session
-    session = get_current_session(db, user_id)
+    session = get_current_session(db, user.id)
     if not session:
         await update.message.reply_text(NO_SESSION_MESSAGE)
         return
@@ -231,13 +221,13 @@ async def handle_solve(update: Update, context: CallbackContext) -> None:
     # Return the feedback to the user
     await update.message.reply_text(judge_response)
 
-async def handle_giveup(update: Update, context: CallbackContext) -> None:
-    # Send that the bot is typing so the user knows to wait
-    await context.bot.send_chat_action(chat_id=update.effective_message.chat_id, action=ChatAction.TYPING)
 
-    db = get_db_context(context)
-    user_id = update.message.from_user.id
-    user = ensure_user_exists(db, user_id)
+# noinspection DuplicatedCode
+async def handle_giveup(update: Update, context: CallbackContext) -> None:
+    await send_typing(update, context)
+
+    db = get_db_context()
+    user = get_user_from_update(update, db)
 
     # Check if the user has set a subject
     if not user.subject:
@@ -245,7 +235,7 @@ async def handle_giveup(update: Update, context: CallbackContext) -> None:
         return
 
     # Check if there is an active session
-    session = get_current_session(db, user_id)
+    session = get_current_session(db, user.id)
     if not session:
         await update.message.reply_text(NO_SESSION_MESSAGE)
         return
@@ -258,6 +248,30 @@ async def handle_giveup(update: Update, context: CallbackContext) -> None:
 
     # Return the feedback to the user
     await update.message.reply_text(response)
+
+async def handle_send_daily_question(update: Update, context: CallbackContext) -> None:
+    db = get_db_context()
+    user = get_user_from_update(update, db)
+
+    if not user.is_admin:
+        return
+
+    # Typing
+    await send_typing(update, context)
+
+    # Get all users, or use provided user IDs
+    if len(context.args) == 0:
+        await generate_daily_questions(db, context.bot)
+        await update.message.reply_text(ADMIN_DELIVERED_DAILY_QUESTION)
+        return
+
+    users = [get_user(db, int(x)) for x in context.args]
+
+    tasks = [asyncio.create_task(generate_daily_question_for_user(db, context.bot, user)) for user in users]
+    await asyncio.gather(*tasks)
+
+    # Notify admin of successes and failures
+    await update.message.reply_text(ADMIN_DELIVERED_DAILY_QUESTION)
 
 # Error handler
 async def handle_error(update: Update, context: CallbackContext) -> None:
@@ -282,7 +296,7 @@ async def post_init(application: Application) -> None:
 
     await application.bot.set_my_commands(menu)
 
-def main() -> None:
+def run_bot() -> Application:
     # Create the Application and pass it your bot's token
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
@@ -295,6 +309,10 @@ def main() -> None:
     application.add_handler(CommandHandler("solve", handle_solve))
     application.add_handler(CommandHandler("giveup", handle_giveup))
 
+    # Admin handlers
+    # Add a hidden slash command to trigger the daily question generation
+    application.add_handler(CommandHandler("daily_question", handle_send_daily_question))
+
     # Message handler for non-command text (solution attempts)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
@@ -303,6 +321,29 @@ def main() -> None:
 
     # Start the Bot
     application.run_polling()
+
+    return application
+
+def run_scheduler(application: Application) -> None:
+    # Create an AsyncIOScheduler instance
+    scheduler = AsyncIOScheduler()
+    # Schedule the generate_daily_questions function to run daily at 8am EST
+    scheduler.add_job(generate_daily_questions, 'cron', hour=8, timezone=pytz.timezone('US/Eastern'),
+                      args=[get_db_context(), application])
+    # Start the scheduler
+    scheduler.start()
+
+def run_status() -> None:
+    # Run the status server in a separate thread
+    status_thread = threading.Thread(target=run_status_server)
+    status_thread.daemon = True
+    status_thread.start()
+
+def main() -> None:
+    # Run all processes asynchronously
+    application = run_bot()
+    run_scheduler(application)
+    run_status()
 
 if __name__ == '__main__':
     main()

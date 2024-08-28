@@ -126,13 +126,9 @@ def create_tutor_session(db: Session, user_id: int, subject: str, memo: str, que
     db.refresh(new_session)
     return new_session
 
-
-# noinspection PyTypeChecker
 def get_current_session(db: Session, user_id: int):
     return db.query(TutorSession).filter(TutorSession.user_id == user_id).order_by(TutorSession.created_at.desc()).first()
 
-
-# noinspection PyTypeChecker
 def update_session(db: Session, session_id: int, **kwargs):
     session = db.query(TutorSession).filter(TutorSession.id == session_id).first()
     if session:

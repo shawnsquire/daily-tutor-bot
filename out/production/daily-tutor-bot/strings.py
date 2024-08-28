@@ -69,7 +69,7 @@ QUESTION_GENERATION_FAILED_MESSAGE = (
 )
 
 QUESTION_READY_MESSAGE = (
-    "Here’s your {subject} question: {question}\n"
+    "Here’s your question: {question}\n"
     "Take your time to think it through. Feel free to talk to me to get help if you need it.\n"
     "When you're ready, feel free to start solving it with /solve!"
 )
@@ -93,6 +93,10 @@ NO_QUESTION_TO_SOLVE_MESSAGE = (
 
 TUTOR_ERROR_MESSAGE = (
     "Oops, something went wrong on my end. I'm sorry about that! Please try again in a little bit, and I'll be here to help."
+)
+
+QUESTION_READY_MESSAGE = (
+    "🔥 Ready to flex those {subject} muscles? Here's your challenge: {question}\n"
 )
 
 ADMIN_DELIVERED_DAILY_QUESTION = (
