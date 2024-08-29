@@ -1,3 +1,13 @@
+BOT_NAME = "Daily Tutor"
+
+BOT_DESCRIPTION = (
+    "Daily Tutor provides daily practice with custom problems, tracks your progress, and delivers quick, personalized feedback. Type /subject to pick a subject!"
+)
+
+BOT_SHORT_DESCRIPTION = (
+    "Daily Tutor helps you practice daily, offering personalized problems, tracking progress, and giving instant feedback."
+)
+
 BOT_MENU_SUBJECT_DESCRIPTION = (
     "Set or review the subject you're currently focusing on. This helps me tailor questions just for you."
 )

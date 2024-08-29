@@ -294,6 +294,11 @@ async def post_init(application: Application) -> None:
 
     await application.bot.set_my_commands(menu)
 
+async def define_bot(application: Application) -> None:
+    await application.bot.set_my_name(BOT_NAME)
+    await application.bot.set_my_description(BOT_DESCRIPTION)
+    await application.bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
+
 def create_bot() -> Application:
     # Create the Application and pass it your bot's token
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(True).post_init(post_init).build()
@@ -364,6 +369,9 @@ async def main() -> None:
         tasks.append(status_task)
     except Exception as e:
         logger.error(f"Failed to start status server: {e}")
+
+    # Define the bot properties
+    tasks.append(asyncio.create_task(define_bot(application)))
 
     # Wait for all tasks to finish
     await asyncio.gather(*tasks)

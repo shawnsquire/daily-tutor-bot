@@ -73,11 +73,12 @@ def get_db():
 
 # Helper functions
 def get_user(db, user_id):
-    # Get users with a subject
-    # TODO: Don't get users who have muted me
-    return db.query(User).filter(User.id == user_id, User.subject != None).first()
+    return db.query(User).filter(User.id == user_id).first()
 
 def get_all_users(db):
+    return db.query(User).all()
+
+def get_all_users_with_subject(db):
     return db.query(User).filter(User.subject != None).all()
 
 def create_user(db, user_id):
