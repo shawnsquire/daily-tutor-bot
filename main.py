@@ -12,7 +12,6 @@ import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from src.scheduler import generate_daily_questions, generate_daily_question_for_user
 import asyncio
-import signal
 
 # Load environment variables
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
