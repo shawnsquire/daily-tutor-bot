@@ -39,6 +39,7 @@ class TutorSession(Base):
     expected_answer = Column(String)
     attempted = Column(Integer, default=0)
     correct = Column(Boolean, default=False)
+    archived = Column(Boolean, default=False)
     performance_explanation = Column(String)
     performance = Column(Integer)
     completed = Column(Boolean, default=False)
@@ -130,7 +131,13 @@ def create_tutor_session(db: Session, user_id: int, subject: str, memo: str, que
 
 # noinspection PyTypeChecker
 def get_current_session(db: Session, user_id: int):
-    return db.query(TutorSession).filter(TutorSession.user_id == user_id).order_by(TutorSession.created_at.desc()).first()
+    session = (db.query(TutorSession)
+               .filter(TutorSession.user_id == user_id, ~TutorSession.archived)
+               .order_by(TutorSession.created_at.desc())
+               .first())
+    if session is None:
+        raise ValueError(f"No current session found for user {user_id}")
+    return session
 
 
 # noinspection PyTypeChecker

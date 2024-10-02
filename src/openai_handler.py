@@ -73,7 +73,7 @@ def chat_message(session, user_response):
         return msg_text
 
 
-    return {"feedback": f"Whoops! I had a problem. {run.last_error.message} ({run.last_error.code})"}
+    return f"Whoops! I had a problem. {run.last_error.message} ({run.last_error.code})"
 
 
 

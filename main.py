@@ -122,9 +122,14 @@ async def generate_new_question(update: Update, context: CallbackContext) -> Non
     # Ask the chat agent for a question
     thread_id, question_data = chat_generate_question(user.subject, user.memo)
 
+    # Alert on an error since we just got text back
     if isinstance(question_data, str):
         await update.message.reply_text(QUESTION_GENERATION_FAILED_MESSAGE)
         return
+
+    # Invalidate all the other sessions to not have multiple concurrent
+    # noinspection PyTypeChecker
+    db.query(TutorSession).filter(TutorSession.user_id == user.id).update({'archived': True}, synchronize_session=False)
 
     # Logic to store question and start session
     create_tutor_session(
