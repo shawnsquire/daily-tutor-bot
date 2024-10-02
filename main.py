@@ -2,7 +2,7 @@ import logging
 import traceback
 from telegram import Update, BotCommand
 from telegram.constants import ChatAction
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ContextTypes
 from src.db import *
 from src.strings import *
 from src.openai_handler import chat_generate_question, chat_message, chat_solution_attempt, chat_judge_response, chat_giveup
@@ -15,6 +15,7 @@ import asyncio
 
 # Load environment variables
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+DEVELOPER_CHAT_ID = os.getenv('DEVELOPER_CHAT_ID')
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -196,6 +197,9 @@ async def handle_solve(update: Update, context: CallbackContext) -> None:
     # If both checks pass, proceed with handling the solution attempt
     response = chat_solution_attempt(session, user_response)
 
+    if response is None:
+        await update.message.reply_text(TUTOR_ERROR_MESSAGE)
+
     update_session(db, session.id, attempted=session.attempted + 1,
                    correct=response.get("is_correct"),
                    completed=response.get("is_correct") or session.completed)
@@ -271,12 +275,17 @@ async def handle_send_daily_question(update: Update, context: CallbackContext) -
     await update.message.reply_text(ADMIN_DELIVERED_DAILY_QUESTION)
 
 # Error handler
-async def handle_error(update: Update, context: CallbackContext) -> None:
+async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
     tb_string = "".join(tb_list)
 
     logger.warning(f'Update {update} caused error {context.error}.\n\n{tb_string}')
     error_handler(update, context)
+
+    # Finally, send the message
+    await context.bot.send_message(
+        chat_id=DEVELOPER_CHAT_ID, text=f'Update {update} caused error {context.error}.\n\n{tb_string}'
+    )
 
     await update.message.reply_text(TUTOR_ERROR_MESSAGE)
 
