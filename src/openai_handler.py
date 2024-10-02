@@ -73,7 +73,7 @@ def chat_message(session, user_response):
         return msg_text
 
 
-    return f"The solution attempt did not complete successfully: {run.status}"
+    return {"feedback": f"Whoops! I had a problem. {run.last_error.message} ({run.last_error.code})"}
 
 
 
@@ -121,7 +121,7 @@ def chat_solution_attempt(session, user_response):
             "full_solution": msg_text
         }
     else:
-        return {"feedback": f"The solution attempt did not complete successfully: {run.status}"}
+        return {"feedback": f"Whoops! The judge seems to be having an issue. {run.last_error.message} ({run.last_error.code})"}
 
 def chat_judge_response(session):
     # Create the OpenAI client
@@ -152,7 +152,7 @@ def chat_judge_response(session):
         return msg_text
 
 
-    return f"The solution attempt did not complete successfully: {run.status}"
+    return {"feedback": f"Error: {run.last_error.message} ({run.last_error.code})"}
 
 def chat_giveup(session):
     # Create the OpenAI client
