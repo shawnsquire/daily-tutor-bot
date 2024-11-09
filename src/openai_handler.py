@@ -9,6 +9,7 @@ GENERATION_ASSISTANT = "asst_Vw21sPPzzZuqkRM42n6X27OZ"
 MESSAGE_ASSISTANT = "asst_3QnAUu8jMl9j0n8VFyWuyv9G"
 JUDGE_ASSISTANT = "asst_icrfgkOoEozOuCRSO33tvWlk"
 GIVEUP_ASSISTANT = "asst_h8EDYFMqiaJqIAw4WfFlwChS"
+PLAY_ASSISTANT = "asst_dvEsuOv1h5EX1PpBHRLaJqXC"
 
 def chat_generate_question(subject, memo):
     # Create the OpenAI client
@@ -183,3 +184,33 @@ def chat_giveup(session):
         return msg_text
 
     return f"Giving up did not complete successfully: {run.status}"
+
+def chat_play(subject, memo):
+    # Create the OpenAI client
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    # Get the assistant
+    assistant = client.beta.assistants.retrieve(PLAY_ASSISTANT)
+
+    # Create a thread with the user's message
+    thread = client.beta.threads.create(
+        messages=[
+            {
+                "role": "user",
+                "content": f'I want to talk about: {subject}. Remember this note: {memo}. I may have something to talk about, but in case I don\'t, give me a couple of recommended topics.'
+            }
+        ]
+    )
+
+
+    run = client.beta.threads.runs.create_and_poll(
+        thread_id=thread.id,
+        assistant_id=assistant.id
+    )
+
+    if run.status == 'completed':
+        messages = client.beta.threads.messages.list(thread_id=thread.id)
+        msg_text = messages.data[0].content[0].text.value
+        return thread.id, msg_text
+    else:
+        return 0, run.status

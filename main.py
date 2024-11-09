@@ -5,7 +5,7 @@ from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ContextTypes
 from src.db import *
 from src.strings import *
-from src.openai_handler import chat_generate_question, chat_message, chat_solution_attempt, chat_judge_response, chat_giveup
+from src.openai_handler import chat_generate_question, chat_message, chat_solution_attempt, chat_judge_response, chat_giveup, chat_play
 from src.utils import error_handler, get_db_context, send_typing
 from src.status_server import run_status_server
 import pytz
@@ -30,6 +30,17 @@ logging.getLogger('http.server').setLevel(logging.WARNING)
 def get_user_from_update(update: Update, db: Session = get_db_context()) -> User:
     user_id = update.message.from_user.id
     return ensure_user_exists(db, user_id)
+
+# Add a function to update the user's play mode
+def update_user_play_mode(db: Session, user_id: int, play_mode: bool) -> None:
+    # noinspection PyTypeChecker
+    db.query(User).filter(User.id == user_id).update({"status": "playing" if play_mode else "active"})
+    db.commit()
+
+def invalidate_old_sessions(db: Session, user_id: int) -> None:
+    # Invalidate all the other sessions to not have multiple concurrent
+    # noinspection PyTypeChecker
+    db.query(TutorSession).filter(TutorSession.user_id == user_id).update({'archived': True}, synchronize_session=False)
 
 # Command: /start
 # noinspection PyUnusedLocal
@@ -128,8 +139,10 @@ async def generate_new_question(update: Update, context: CallbackContext) -> Non
         return
 
     # Invalidate all the other sessions to not have multiple concurrent
-    # noinspection PyTypeChecker
-    db.query(TutorSession).filter(TutorSession.user_id == user.id).update({'archived': True}, synchronize_session=False)
+    invalidate_old_sessions(db, user.id)
+
+    # Disable the user from the schedule
+    update_user_play_mode(db, user.id, play_mode=False)
 
     # Logic to store question and start session
     create_tutor_session(
@@ -255,6 +268,34 @@ async def handle_giveup(update: Update, context: CallbackContext) -> None:
     # Return the feedback to the user
     await update.message.reply_text(response)
 
+async def handle_play(update: Update, context: CallbackContext) -> None:
+    await send_typing(update, context)
+
+    db = get_db_context()
+    user = get_user_from_update(update, db)
+
+    # Invalidate all the other sessions to not have multiple concurrent
+    invalidate_old_sessions(db, user.id)
+
+    # Disable the user from the schedule
+    update_user_play_mode(db, user.id, play_mode=True)
+
+    thread_id, response = chat_play(user.subject, user.memo)
+
+    # Logic to store question and start session
+    create_tutor_session(
+        db=db,
+        user_id=user.id,
+        subject=user.subject,
+        memo=user.memo,
+        question=response,
+        solving_process='',
+        expected_answer='',
+        thread_id=thread_id
+    )
+
+    await update.message.reply_markdown(response)
+
 async def handle_send_daily_question(update: Update, context: CallbackContext) -> None:
     db = get_db_context()
     user = get_user_from_update(update, db)
@@ -292,6 +333,7 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
         chat_id=DEVELOPER_CHAT_ID, text=f'Update {update} caused error {context.error}.\n\n{tb_string}'
     )
 
+    # noinspection PyUnresolvedReferences
     await update.message.reply_text(TUTOR_ERROR_MESSAGE)
 
 async def post_init(application: Application) -> None:
@@ -302,11 +344,14 @@ async def post_init(application: Application) -> None:
         BotCommand(command='hint', description=BOT_MENU_HINT_DESCRIPTION),
         BotCommand(command='question', description=BOT_MENU_QUESTION_DESCRIPTION),
         BotCommand(command='solve', description=BOT_MENU_SOLVE_DESCRIPTION),
-        BotCommand(command='giveup', description=BOT_MENU_GIVE_UP_DESCRIPTION)
+        BotCommand(command='giveup', description=BOT_MENU_GIVE_UP_DESCRIPTION),
+        BotCommand(command='freetalk', description=BOT_MENU_PLAY_DESCRIPTION)
     ]
 
+    # noinspection PyUnresolvedReferences
     await application.bot.set_my_commands(menu)
 
+# noinspection PyUnresolvedReferences
 async def define_bot(application: Application) -> None:
     await application.bot.set_my_name(BOT_NAME)
     await application.bot.set_my_description(BOT_DESCRIPTION)
@@ -324,6 +369,7 @@ def create_bot() -> Application:
     application.add_handler(CommandHandler("question", generate_new_question, block=False))
     application.add_handler(CommandHandler("solve", handle_solve, block=False))
     application.add_handler(CommandHandler("giveup", handle_giveup, block=False))
+    application.add_handler(CommandHandler("freetalk", handle_play, block=False))
 
     # Admin handlers
     # Add a hidden slash command to trigger the daily question generation
