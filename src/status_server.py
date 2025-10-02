@@ -1,7 +1,8 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import logging
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 status_server_port = 8080
+
 
 class StatusPageHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -9,6 +10,7 @@ class StatusPageHandler(BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"OK")
+
 
 def run_status_server():
     server_address = ("0.0.0.0", status_server_port)

@@ -1,8 +1,8 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
-from sqlalchemy.orm import sessionmaker, Session, declarative_base
-from datetime import datetime, UTC
-from typing import Optional
+from datetime import UTC, datetime
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, create_engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 # Postgres setup
 db_user = os.getenv("DB_USER")
@@ -11,13 +11,14 @@ db_name = os.getenv("DB_NAME")
 db_host = os.getenv("DB_HOST", "localhost")
 db_port = os.getenv("DB_PORT", "5432")
 
-engine = create_engine(f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
+engine = create_engine(f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}")
 Base = declarative_base()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
 # Define the User model
 class User(Base):
-    __tablename__ = 'users'
+    __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     subject = Column(String, index=True)
@@ -26,9 +27,10 @@ class User(Base):
     status = Column(String, default="active")
     is_admin = Column(Boolean, default=False)
 
+
 # Define the Session model
 class TutorSession(Base):
-    __tablename__ = 'sessions'
+    __tablename__ = "sessions"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, index=True)
@@ -47,9 +49,10 @@ class TutorSession(Base):
     created_at = Column(DateTime, default=datetime.now(UTC))
     updated_at = Column(DateTime, default=datetime.now(UTC))
 
+
 # Define the SolutionResponse model
 class SolutionResponse(Base):
-    __tablename__ = 'solution_responses'
+    __tablename__ = "solution_responses"
 
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, index=True)
@@ -61,8 +64,21 @@ class SolutionResponse(Base):
     performance = Column(Integer)
     created_at = Column(DateTime, default=datetime.now(UTC))
 
+
+# Define the Message model for conversation history
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, index=True)
+    role = Column(String)  # 'system', 'user', 'assistant'
+    content = Column(String)
+    created_at = Column(DateTime, default=datetime.now(UTC))
+
+
 # Create tables
 Base.metadata.create_all(bind=engine)
+
 
 # Dependency to get the DB session
 def get_db():
@@ -72,15 +88,19 @@ def get_db():
     finally:
         db.close()
 
+
 # Helper functions
 def get_user(db, user_id):
     return db.query(User).filter(User.id == user_id).first()
 
+
 def get_all_users(db):
     return db.query(User).all()
 
+
 def get_all_users_with_subject(db):
-    return db.query(User).filter(User.subject != None).all()
+    return db.query(User).filter(User.subject.is_not(None)).all()
+
 
 def create_user(db, user_id):
     new_user = User(id=user_id)
@@ -89,12 +109,14 @@ def create_user(db, user_id):
     db.refresh(new_user)
     return new_user
 
+
 # Ensure user exists or create one
 def ensure_user_exists(db: Session, user_id: int):
     user = get_user(db, user_id)
     if not user:
         user = create_user(db, user_id)
     return user
+
 
 def update_user_subject(db, user_id, subject):
     user = get_user(db, user_id)
@@ -104,6 +126,7 @@ def update_user_subject(db, user_id, subject):
         db.refresh(user)
     return user
 
+
 def update_user_memo(db, user_id, memo):
     user = get_user(db, user_id)
     if user:
@@ -112,8 +135,17 @@ def update_user_memo(db, user_id, memo):
         db.refresh(user)
     return user
 
-def create_tutor_session(db: Session, user_id: int, subject: str, memo: str, question: str, solving_process: str,
-                         expected_answer: str, thread_id : str):
+
+def create_tutor_session(
+    db: Session,
+    user_id: int,
+    subject: str,
+    memo: str,
+    question: str,
+    solving_process: str,
+    expected_answer: str,
+    thread_id: str,
+):
     new_session = TutorSession(
         user_id=user_id,
         subject=subject,
@@ -121,7 +153,7 @@ def create_tutor_session(db: Session, user_id: int, subject: str, memo: str, que
         question=question,
         solving_process=solving_process,
         expected_answer=expected_answer,
-        thread_id=thread_id
+        thread_id=thread_id,
     )
     db.add(new_session)
     db.commit()
@@ -131,10 +163,12 @@ def create_tutor_session(db: Session, user_id: int, subject: str, memo: str, que
 
 # noinspection PyTypeChecker
 def get_current_session(db: Session, user_id: int):
-    session = (db.query(TutorSession)
-               .filter(TutorSession.user_id == user_id, ~TutorSession.archived)
-               .order_by(TutorSession.created_at.desc())
-               .first())
+    session = (
+        db.query(TutorSession)
+        .filter(TutorSession.user_id == user_id, ~TutorSession.archived)
+        .order_by(TutorSession.created_at.desc())
+        .first()
+    )
     if session is None:
         raise ValueError(f"No current session found for user {user_id}")
     return session
@@ -151,7 +185,16 @@ def update_session(db: Session, session_id: int, **kwargs):
     return session
 
 
-def create_solution_response(db: Session, session_id: int, full_solution: str, summarized_solution: str, feedback: str, is_correct: bool, performance_explanation: Optional[str], performance: Optional[int]):
+def create_solution_response(
+    db: Session,
+    session_id: int,
+    full_solution: str,
+    summarized_solution: str,
+    feedback: str,
+    is_correct: bool,
+    performance_explanation: str | None,
+    performance: int | None,
+):
     new_solution_response = SolutionResponse(
         session_id=session_id,
         full_solution=full_solution,
@@ -159,10 +202,21 @@ def create_solution_response(db: Session, session_id: int, full_solution: str, s
         feedback=feedback,
         is_correct=is_correct,
         performance_explanation=performance_explanation,
-        performance=performance
+        performance=performance,
     )
     db.add(new_solution_response)
     db.commit()
     db.refresh(new_solution_response)
     return new_solution_response
 
+
+def create_message(db: Session, session_id: int, role: str, content: str):
+    new_message = Message(session_id=session_id, role=role, content=content)
+    db.add(new_message)
+    db.commit()
+    db.refresh(new_message)
+    return new_message
+
+
+def get_session_messages(db: Session, session_id: int):
+    return db.query(Message).filter(Message.session_id == session_id).order_by(Message.created_at).all()
