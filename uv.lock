@@ -83,6 +83,7 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "tqdm" },
     { name = "typing-extensions" },
+    { name = "tzdata" },
     { name = "tzlocal" },
 ]
 
@@ -116,6 +117,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.32" },
     { name = "tqdm", specifier = ">=4.66.5" },
     { name = "typing-extensions", specifier = ">=4.12.2" },
+    { name = "tzdata", specifier = ">=2024.1" },
     { name = "tzlocal", specifier = ">=5.2" },
 ]
 

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import threading
 import traceback
 
 import pytz
@@ -490,37 +491,42 @@ def main_bot_only() -> None:
     run_bot(application)
 
 
-async def main() -> None:
-    # We need the bot to start up before we can continue
-    application = create_bot()
-
-    # List to hold only successful tasks
-    tasks = []
-
-    # Start the scheduler in the background
+def main_with_extras() -> None:
+    """Run bot with scheduler and status server."""
+    # Start the status server in a separate thread (it blocks)
     try:
-        scheduler_task = asyncio.create_task(run_scheduler(application))
-        tasks.append(scheduler_task)
-    except Exception as e:
-        logger.error(f"Failed to start scheduler: {e}")
-
-    # Start the status server in the background
-    try:
-        status_task = asyncio.create_task(run_status())
-        tasks.append(status_task)
+        status_thread = threading.Thread(target=run_status_server, daemon=True)
+        status_thread.start()
+        logger.info("Status server thread started")
     except Exception as e:
         logger.error(f"Failed to start status server: {e}")
 
-    # Define the bot properties
-    tasks.append(asyncio.create_task(define_bot(application)))
+    # Create the bot application
+    application = create_bot()
 
-    # Wait for all tasks to finish
-    await asyncio.gather(*tasks)
+    # Define bot properties (run async task synchronously)
+    try:
+        import nest_asyncio
+        nest_asyncio.apply()
+    except ImportError:
+        pass
 
-    # Run the bot
+    try:
+        asyncio.get_event_loop().run_until_complete(define_bot(application))
+        logger.info("Bot properties defined")
+    except Exception as e:
+        logger.error(f"Failed to define bot: {e}")
+
+    # Start the scheduler
+    try:
+        asyncio.get_event_loop().run_until_complete(run_scheduler(application))
+        logger.info("Scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
+
+    # Run the bot (this blocks until the bot stops)
     run_bot(application)
 
 
 if __name__ == "__main__":
-    # asyncio.run(main())
-    main_bot_only()
+    main_with_extras()
