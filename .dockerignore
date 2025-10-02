@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv/
+ENV/
+env/
+
+# IDE
+.vscode
+.idea
+.claude
+
+# Documentation
+*.md
+!README.md
+
+# Env files (use docker-compose env vars instead)
+.env
+.env.*
+
+# Build artifacts
+out/
+dist/
+build/
+*.egg-info/
+
+# Tests
+tests/
+test_*.py
+*_test.py
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# Requirements (we use pyproject.toml)
+requirements.txt
